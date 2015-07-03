@@ -4,6 +4,7 @@
 import os
 import struct
 from construct import *
+import tempfile
 
 class Hider():
     def __str__(self):
@@ -32,14 +33,33 @@ class Hider():
         pass
 
 def _hide_at_end(fname, data, clustersize):
-    with open(fname, 'ab+') as f:
-        f.seek(0, 2)
-        print "Writing at", f.tell()
+    file_size = os.path.getsize(self.image_path)
+    _insert_into_file(fname, file_size, data, clustersize)
+       
+def _insert_into_file(fname, pos, data, alignment = 1, padding_char = "\0"):
+    t = tempfile.TemporaryFile()
+    with open(fname, 'rb+') as f:
+        f.seek(pos)
+        while 1:
+            tmp = f.read(alignment)
+            if not tmp:
+                break
+            t.write(tmp)
+        f.seek(pos)
         f.write(data)
-        final_size = f.tell()
-        for r in xrange(0, (final_size + clustersize) % clustersize):
+        end_of_data = f.tell()
+        required_padding = ((alignment - end_of_data) % alignment)
+        for r in xrange(0, required_padding):
             # add padding to cluster size
-            f.write("\0")
+            f.write(padding_char[0])
+        # return len(data) + required_padding
+        t.seek(0)
+        while 1:
+            tmp = t.read(alignment)
+            if not tmp:
+                break
+            f.write(tmp)
+    return len(data) + required_padding
 
 QCOW2HeaderExtension = Struct("qcow2_header_extension",
     UBInt32("type"),
@@ -414,18 +434,7 @@ class VHDHider(Hider):
         footer_len = file_size % 512
         if footer_len == 0:
             footer_len = 512
-        with open(self.image_path, 'rb') as f:
-            f.seek(-footer_len, 2)
-            original_footer_start = f.tell()
-            footer = f.read()
-        with open(self.image_path, 'ab+') as f: 
-            f.seek(start)
-            f.write(data)
-            final_size = f.tell()
-            for r in xrange(0, (final_size + self.clustersize) % self.clustersize):
-                # add padding to cluster size
-                f.write("\0")
-            f.write(footer)
+        _insert_into_file(self.image_path, file_size - footer_len, data)
             
 class RAWHider(Hider):
     def extending_hiding_spaces(self):
@@ -458,32 +467,3 @@ def create_hider(src_fname, dst_fname=None, in_place=False):
         else:
             dst_fname = basename + '-watermark' + ending
     return class_table[ending.lower()](src_fname)
-
-def __main__():
-    data = """The woods are lovely, dark and deep
-but I have promises to keep
-and miles to go before I sleep.
-"""
-    """
-Белеет парус одинокий
-в тумане моря голубом
-что ищет он в стране далёкой?
-Что кинул он в краю родном?
-    """
-    for ending in ['qcow2', 'vdi', 'vmdk', 'vhd']:
-    # for ending in ['vhd']:
-        print ending
-        c = create_hider('test1.'+ending)
-        fixed_spaces = c.fixed_hiding_spaces()
-        print "Required space:", len(data)
-        print "Fixed:", fixed_spaces 
-        extending_spaces = c.extending_hiding_spaces()
-        print "Extending:", extending_spaces 
-        c.hide_fixed(fixed_spaces[0][0], data)
-        print "Data hidden"
-        # c.hide_extending(extending_spaces[0][0], 'D' * 100000) 
-        # c.hide_extending(fixed_spaces[0][0], data)
-        # print unicode(c)
-
-if __name__ == '__main__':
-    __main__()
