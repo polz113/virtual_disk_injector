@@ -9,31 +9,38 @@ import tempfile
 class Hider():
     def __str__(self):
         return unicode(self).encode('utf-8')
+
     def __unicode__(self):
         return self.image_path + str(self.header)
+
     def parse_header(self):
         self.header = None
+
     def __init__(self, image_path):
         self.image_path = image_path
         self.parse_header()
+
     def fixed_hiding_spaces(self):
         """returns the places where data may be hidden without extending the image as a list of (start, length) tuples"""
         return []
+
     def extending_hiding_spaces(self):
         """returns the starts of places where data may be hidden but the file will have to be extended. Returns a list of (start, length) tuples where length is None if the space available is 2**31 or greater"""
         # these locations can store arbitrary amounts of data
         return []
+
     def hide_fixed(self, start, data):
         """hide the data without extending the virtual disk image. Performs no checking but updates the neccessarry structures in the image."""
         with open(self.image_path, 'a+') as f:
             f.seek(start)
             # f.write(data)    
+
     def hide_extending(self, start, data):
         """hide the data by extending the virtual disk image. Updates the neccessary structures in the image."""
         pass
 
 def _hide_at_end(fname, data, clustersize):
-    file_size = os.path.getsize(self.image_path)
+    file_size = os.path.getsize(fname)
     _insert_into_file(fname, file_size, data, clustersize)
        
 def _insert_into_file(fname, pos, data, alignment = 1, padding_char = "\0"):
@@ -64,8 +71,7 @@ def _insert_into_file(fname, pos, data, alignment = 1, padding_char = "\0"):
 QCOW2HeaderExtension = Struct("qcow2_header_extension",
     UBInt32("type"),
     UBInt32("length"),
-    Aligned(UBInt8(""), 4)
-    
+    Aligned(UBInt8(""), 4)   
 )
 
 QCOW2Header = Struct("qcow2_header",
@@ -175,7 +181,7 @@ class QCOW2Hider(Hider):
         return [(self.header.end_of_extensions, start_of_backing_file - self.header.end_of_extensions)]
 
     def extending_hiding_spaces(self):
-        """returns the starts of places where data may be hidden but the file will have to be extended. Returns a list of (start, length) tuples where length is None if the space available is 2**31 or greater"""
+        """returns the starts of places where data may be hidden but the file will have to be extended. Returns a list of (start, length) tuples where length is None if the space available is 2**31 bytes or greater"""
         file_size = os.path.getsize(self.image_path)
         return [(file_size, None)]
         return []
@@ -230,15 +236,18 @@ class VDIHider(Hider):
         with open(self.image_path) as f:
             self.header = VDIFile.parse_stream(f)
             self.clustersize = self.header.block_size
+
     def fixed_hiding_spaces(self):
         # print self.header
         return [(self.header.end_of_header_data, self.header.offset_bmap - self.header.end_of_header_data),
             (self.header.end_of_bmap, self.header.start_of_data - self.header.end_of_bmap)]
+
     def extending_hiding_spaces(self):
         """returns the starts of places where data may be hidden but the file will have to be extended. Returns a list of (start, length) tuples where length is None if the space available is 2**31 or greater"""
         """returns the starts of places where data may be hidden but the file will have to be extended"""
         file_size = os.path.getsize(self.image_path)
         return [(file_size, None)]
+
     def hide_extending(self, start, data):
         """hide the data by extending the virtual disk image. Updates the neccessary structures in the image."""
         if start == os.path.getsize(self.image_path):
@@ -279,13 +288,16 @@ class VMDKHider(Hider):
             self.header = VMDKFile.parse_stream(f)
             self.clustersize = self.header.grainSize * 512
         # print self.header
+
     def fixed_hiding_spaces(self):
         return [(self.header.end_of_header_data, self.header.descriptorOffset * 512 - self.header.end_of_header_data)]
+
     def extending_hiding_spaces(self):
         """returns the starts of places where data may be hidden but the file will have to be extended. Returns a list of (start, length) tuples where length is None if the space available is 2**31 or greater"""
         """returns the starts of places where data may be hidden but the file will have to be extended"""
         file_size = os.path.getsize(self.image_path)
         return [(file_size, None)]
+
     def hide_extending(self, start, data):
         """hide the data by extending the virtual disk image. Updates the neccessary structures in the image."""
         if start == os.path.getsize(self.image_path):
@@ -378,17 +390,18 @@ VHDFile = Struct("vhd_file",
 )
 
 
-
 class VHDHider(Hider):
     def parse_header(self):
         with open(self.image_path) as f:
             self.header = VHDFile.parse_stream(f)
             self.clustersize = self.header.block_size
+
     def fixed_hiding_spaces(self):
         return[
             (self.header.footer_copy.end_of_footer_data,
                 self.header.end_of_footer_copy - self.header.footer_copy.end_of_footer_data),
             (self.header.end_of_header_data, self.header.start_of_BAT - self.header.end_of_header_data)]
+
     def extending_hiding_spaces(self):
         """returns the starts of places where data may be hidden but the file will have to be extended. Returns a list of (start, length) tuples where length is None if the space available is 2**31 or greater"""
         # these locations can store arbitrary amounts of data
@@ -397,6 +410,7 @@ class VHDHider(Hider):
         if footer_len == 0:
             footer_len = 512
         return [(file_size - footer_len, None)]
+
     def hide_fixed(self, start, data):
         """hide the data without extending the virtual disk image. Performs no checking but updates the neccessarry structures in the image."""
         # if the data is to be hidden in the footer copy, in the footer or in the header, checksums must be recalculated
