@@ -31,9 +31,9 @@ class Hider():
 
     def hide_fixed(self, start, data):
         """hide the data without extending the virtual disk image. Performs no checking but updates the neccessarry structures in the image."""
-        with open(self.image_path, 'a+') as f:
+        with open(self.image_path, 'r+b') as f:
             f.seek(start)
-            # f.write(data)    
+            f.write(data)
 
     def hide_extending(self, start, data):
         """hide the data by extending the virtual disk image. Updates the neccessary structures in the image."""
@@ -55,7 +55,7 @@ def _insert_into_file(fname, pos, data, alignment = 1, padding_char = "\0"):
         f.seek(pos)
         f.write(data)
         end_of_data = f.tell()
-        required_padding = ((alignment - end_of_data) % alignment)
+        required_padding = end_of_data % alignment
         for r in xrange(0, required_padding):
             # add padding to cluster size
             f.write(padding_char[0])
@@ -438,7 +438,7 @@ class VHDHider(Hider):
                 f.seek(-footer_len, 2)
                 f.write(header_str[:footer_len])
             self.header = new_header
-        with open(self.image_path, 'ab+') as f: 
+        with open(self.image_path, 'rb+') as f: 
             f.seek(start)
             f.write(data)
 
