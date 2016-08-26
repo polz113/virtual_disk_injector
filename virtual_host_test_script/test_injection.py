@@ -10,7 +10,7 @@ md5_sum_fname = "/mnt/test_script/sdc_md5sum.txt"
 log_fname_format = "/mnt/test_script/log_{:0>3}.txt"
 disc_fname = "/dev/sdc"
 BLOCK_SIZE = 2**20 # 2**20
-N_WRITES = 2 # *(2**4)
+N_WRITES = 1 # *(2**4)
 hash_fn = hashlib.md5
 
 if hasattr(os, 'sync'):

@@ -10,6 +10,28 @@ from time import sleep
 
 md5_sum_fname = 'virtual_host_test_script/sdc_md5sum.txt'
 
+def count_matches(s1, s2):
+    n_ok = 0
+    n_miss = 0
+    result = []
+    for i, val in enumerate(s1):
+        if i > len(s2) - 1 or s2[i] != val:
+            if n_ok > 0:
+                result.append((n_ok, True))
+                n_ok = 0
+            n_miss += 1
+        else:
+            if n_miss > 0:
+                result.append((n_miss, False))
+                n_miss = 0
+            n_ok += 1
+    if n_miss > 0:
+        result.append((n_miss, False))
+    if n_ok > 0:
+        result.append((n_ok, True))
+    return result
+    
+
 def __main__():
     N_WRITES = 256
     SEED = 31337
@@ -60,6 +82,7 @@ and miles to go before I sleep.
         print "Required space:", len(static_data)
         print "Fixed:", fixed_spaces
         extending_spaces = c.extending_hiding_spaces()
+        print "cluster size:", c.clustersize
         for space in extending_spaces:
             hiding_spaces_list.append(space)
         hiding_spaces[img_type] = hiding_spaces_list
@@ -69,9 +92,12 @@ and miles to go before I sleep.
         print "  A:", c.guest_data_offset(1534333117)
         print "  B:", c.guest_data_offset(3221225472)
         print "Extending:", extending_spaces 
+        print "Extending:", extending_spaces
+        print "before hiding:", os.stat(img_fname).st_size
         call(['cp', img_fname, img_fname + '.orig'])
         c.hide_fixed(fixed_spaces[0][0], static_data)
         c.hide_extending(extending_spaces[0][0], extending_data)
+        print "after hiding:", os.stat(img_fname).st_size
         with open(img_fname, 'r') as f:
             f.seek(fixed_spaces[0][0])
             d1 = f.read(len(static_data))
@@ -79,6 +105,7 @@ and miles to go before I sleep.
             f.seek(extending_spaces[0][0])
             d2 = f.read(len(extending_data))
             print "extending pre-check"
+            print "match:", count_matches(d2, extending_data)
             # print d2
             assert d2 == extending_data
         # write 256 Bs
@@ -102,7 +129,7 @@ and miles to go before I sleep.
             f.seek(extending_spaces[0][0])
             d2 = f.read(len(extending_data))
             print "extending check"
-            print d2
+            print "match:", count_matches(d2, extending_data)
             assert d2 == extending_data
         os.unlink(md5_sum_fname)
         # c.hide_extending(fixed_spaces[0][0], data)
