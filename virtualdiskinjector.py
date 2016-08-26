@@ -174,6 +174,7 @@ class QCOW2Hider(Hider):
             self.header = QCOW2File.parse_stream(f)
             self.clustersize = 1 << self.header.cluster_bits
         # print len(self.header.refcount_table)
+        
     def fixed_hiding_spaces(self):
         start_of_backing_file = self.header.backing_file_offset
         if start_of_backing_file == 0:
@@ -185,13 +186,38 @@ class QCOW2Hider(Hider):
         file_size = os.path.getsize(self.image_path)
         return [(file_size, None)]
         return []
+    
     def hide_extending(self, start, data):
-        """hide the data by extending the virtual disk image. Updates the neccessary structures in the image."""
+        """hide the data by extending the virtual disk image. Updates the neccessary structures in the imagge."""
         if start == os.path.getsize(self.image_path):
             _hide_at_end(self.image_path, data, self.clustersize)
         else:
             raise Exception("Unsupported place for extended hiding")
-
+    
+    def guest_data_offset(self, offset):
+        ENTRY_SIZE = 8
+        l2_entries = (self.clustersize / ENTRY_SIZE)
+        l2_index = (offset / self.clustersize) % l2_entries
+        l1_index = (offset / self.clustersize) / l2_entries
+        with open(self.image_path) as f:
+            f.seek(self.header.l1_table_offset)
+            l1_table = f.read(self.header.l1_size * ENTRY_SIZE)
+            print "    l1 index:", l1_index
+            print "    l1 size:", self.header.l1_size
+            if l1_index >= self.header.l1_size:
+                return None
+            print len(l1_table[l1_index*ENTRY_SIZE:(l1_index+1)*ENTRY_SIZE])
+            l1_entry = struct.unpack(">Q", l1_table[l1_index*ENTRY_SIZE:(l1_index+1)*ENTRY_SIZE])[0]
+            print "    L2 entry:", hex(l1_entry)
+            l2_table_offset = l1_entry & 0x00ffffffffffff00
+            print "    L2 offset:", l2_table_offset
+            f.seek(l2_table_offset)
+            l2_table = f.read(self.clustersize)
+            l2_table_entry = struct.unpack(">Q", l2_table[l2_index*ENTRY_SIZE:(l2_index+1)*ENTRY_SIZE])[0]
+            print "    L2 entry:", hex(l2_table_entry)
+            cluster_offset = l2_table_entry & 0x00ffffffffffff00
+            print "    cluster offset:", cluster_offset
+        return cluster_offset + (offset % self.clustersize)
 
 VDIHeader = Struct("vdi_header",
     String("text", 0x40),

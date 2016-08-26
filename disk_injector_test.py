@@ -42,6 +42,12 @@ and miles to go before I sleep.
         call(["qemu-img", "create", "-f", img_type, img_fname, str(DISK_SIZE)])
         # run virtual_host_test_script/test_injection.py 
         # in qemu, write 256 ? Bs ?
+        c = create_hider(img_fname)
+        print "Initial"
+        print "  ", c.header.l1_table_offset
+        print "  ", c.header.l1_size
+        print "  A:", c.guest_data_offset(1534333117)
+        print "  B:", c.guest_data_offset(3221225472)
         call(["qemu-system-x86_64", "--enable-kvm",
                 "-hda", tester_disk_img,
                 "-hdb", "fat:rw:virtual_host_test_script",
@@ -57,6 +63,11 @@ and miles to go before I sleep.
         for space in extending_spaces:
             hiding_spaces_list.append(space)
         hiding_spaces[img_type] = hiding_spaces_list
+        print "After first run"
+        print "  ", c.header.l1_table_offset
+        print "  ", c.header.l1_size
+        print "  A:", c.guest_data_offset(1534333117)
+        print "  B:", c.guest_data_offset(3221225472)
         print "Extending:", extending_spaces 
         call(['cp', img_fname, img_fname + '.orig'])
         c.hide_fixed(fixed_spaces[0][0], static_data)
@@ -78,7 +89,11 @@ and miles to go before I sleep.
                 "-hda", tester_disk_img,
                 "-hdb", "fat:rw:virtual_host_test_script",
                 "-hdc", img_fname])
-
+        print "After second run"
+        print "  ", c.header.l1_table_offset
+        print "  ", c.header.l1_size
+        print "  A:", c.guest_data_offset(1534333117)
+        print "  B:", c.guest_data_offset(3221225472)
         # check the hidden data
         with open(img_fname, 'r') as f:
             f.seek(fixed_spaces[0][0])
