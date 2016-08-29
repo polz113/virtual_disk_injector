@@ -66,14 +66,14 @@ and miles to go before I sleep.
         # in qemu, write 256 ? Bs ?
         c = create_hider(img_fname)
         print "Initial"
-        print "  ", c.header.l1_table_offset
-        print "  ", c.header.l1_size
         print "  A:", c.guest_data_offset(1534333117)
-        print "  B:", c.guest_data_offset(3221225472)
+        print "  B:", c.guest_data_offset(2190361692)
+        call(['cp', img_fname, img_fname + '.orig'])
         call(["qemu-system-x86_64", "--enable-kvm",
                 "-hda", tester_disk_img,
                 "-hdb", "fat:rw:virtual_host_test_script",
                 "-hdc", img_fname])
+        call(['cp', img_fname, img_fname + '.run1'])
         # identify spaces
         c = create_hider(img_fname)
         fixed_spaces = c.fixed_hiding_spaces()
@@ -82,21 +82,19 @@ and miles to go before I sleep.
         print "Required space:", len(static_data)
         print "Fixed:", fixed_spaces
         extending_spaces = c.extending_hiding_spaces()
-        print "cluster size:", c.clustersize
+        print "cluster size:", c.header.cluster_size
         for space in extending_spaces:
             hiding_spaces_list.append(space)
         hiding_spaces[img_type] = hiding_spaces_list
         print "After first run"
-        print "  ", c.header.l1_table_offset
-        print "  ", c.header.l1_size
         print "  A:", c.guest_data_offset(1534333117)
-        print "  B:", c.guest_data_offset(3221225472)
-        print "Extending:", extending_spaces 
+        print "  B:", c.guest_data_offset(2190361692)
         print "Extending:", extending_spaces
         print "before hiding:", os.stat(img_fname).st_size
-        call(['cp', img_fname, img_fname + '.orig'])
+        call(['cp', img_fname, img_fname + '.nohide'])
         c.hide_fixed(fixed_spaces[0][0], static_data)
         c.hide_extending(extending_spaces[0][0], extending_data)
+        call(['cp', img_fname, img_fname + '.hide'])
         print "after hiding:", os.stat(img_fname).st_size
         with open(img_fname, 'r') as f:
             f.seek(fixed_spaces[0][0])
@@ -109,18 +107,22 @@ and miles to go before I sleep.
             # print d2
             assert d2 == extending_data
         # write 256 Bs
-        call(['cp', img_fname, img_fname + '.bak'])
         # run virtual_host_test_script/test_injection.py 
         # for a second time, write 256 ? Bs ?
         call(["qemu-system-x86_64", "--enable-kvm",
                 "-hda", tester_disk_img,
                 "-hdb", "fat:rw:virtual_host_test_script",
                 "-hdc", img_fname])
+        call(['cp', img_fname, img_fname + '.run2_hide'])
+        call(['cp', img_fname + '.nohide', img_fname + '.run2_nohide'])
+        call(["qemu-system-x86_64", "--enable-kvm",
+                "-hda", tester_disk_img,
+                "-hdb", "fat:rw:virtual_host_test_script",
+                "-hdc", img_fname + '.run2_nohide'])
+        c = create_hider(img_fname)
         print "After second run"
-        print "  ", c.header.l1_table_offset
-        print "  ", c.header.l1_size
         print "  A:", c.guest_data_offset(1534333117)
-        print "  B:", c.guest_data_offset(3221225472)
+        print "  B:", c.guest_data_offset(2190361692)
         # check the hidden data
         with open(img_fname, 'r') as f:
             f.seek(fixed_spaces[0][0])

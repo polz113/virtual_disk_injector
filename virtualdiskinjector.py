@@ -18,7 +18,14 @@ class Hider():
 
     def __init__(self, image_path):
         self.image_path = image_path
+        self.image_file = open(self.image_path)
         self.parse_header()
+
+    def __del__(self):
+        try:
+            self.image_file.close()
+        except:
+            pass
 
     def fixed_hiding_spaces(self):
         """returns the places where data may be hidden without extending the image as a list of (start, length) tuples"""
@@ -88,6 +95,7 @@ QCOW2Header = Struct("qcow2_header",
     #                longer than 1023 bytes. Undefined if the image doesn't have
     #                a backing file.
     UBInt32("cluster_bits"),
+    Value("cluster_size", lambda ctx: 1 << ctx.cluster_bits),
     #                Number of bits that are used for addressing an offset
     #                within a cluster (1 << cluster_bits is the cluster size).
     #                Must not be less than 9 (i.e. 512 byte clusters).
@@ -153,26 +161,57 @@ QCOW2Header = Struct("qcow2_header",
     #                images, the length is always assumed to be 72 bytes.
 )
 
-QCOW2L1ClusterDescriptor = Struct("l1_cluster_descriptor",
+QCOW2DataCluster = Array(
+    lambda ctx: ctx._._.cluster_size,
+    Byte("cluster_data"),
+)
+
+QCOW2L2ClusterDescriptor = Struct("l2_table",
     UBInt64("descriptor"),
-    Field("offset", lambda ctx: ctx.descriptor & \
-        0b0000000111111111111111111111111111111111111111111111111000000000)
+    Value("offset", lambda ctx: ctx.descriptor & \
+        0b0000000111111111111111111111111111111111111111111111111000000000),
+    OnDemandPointer(lambda ctx: ctx.offset, QCOW2DataCluster)
+)
+    
+QCOW2L2Table = Array(
+    lambda ctx: ctx._.cluster_size / 8,
+    QCOW2L2ClusterDescriptor,
+)
+
+QCOW2L1ClusterDescriptor = Struct("l1_table",
+    UBInt64("descriptor"),
+    Value("offset", lambda ctx: ctx.descriptor & \
+        0b0000000111111111111111111111111111111111111111111111111000000000),
+    OnDemandPointer(lambda ctx: ctx.offset, QCOW2L2Table)
 )
 
 QCOW2File = Struct("qcow2_file",
     Embed(QCOW2Header),
     RepeatUntil(lambda obj, ctx: obj.type==0, QCOW2HeaderExtension),
     Anchor("end_of_extensions"),
-    Padding(lambda ctx: ctx.refcount_table_offset - ctx.end_of_extensions),
-    MetaArray(lambda ctx: ctx.refcount_table_clusters*2**(ctx.cluster_bits + 3 - ctx.refcount_order), Byte("refcount_table")),
+    OnDemandPointer(lambda ctx: ctx.l1_table_offset,
+                    Array(lambda ctx: ctx.l1_size,
+                          QCOW2L1ClusterDescriptor)),
+    OnDemandPointer(lambda ctx: ctx.refcount_table_offset,
+                    Array(lambda ctx:
+                              ctx.refcount_table_clusters*2**(ctx.cluster_bits + 3 - ctx.refcount_order),
+                          Byte("refcount_table"))),
+    #Padding(lambda ctx: ctx.refcount_table_offset - ctx.end_of_extensions),
+    #MetaArray(lambda ctx: ctx.refcount_table_clusters*2**(ctx.cluster_bits + 3 - ctx.refcount_order), #Byte("refcount_table")),
     Anchor("end_of_refcount_table"),
 )
 
 class QCOW2Hider(Hider):
+    
+    def __del__(self):
+        try:
+            self.image_file.close()
+        except:
+            pass
+        
     def parse_header(self):
-        with open(self.image_path) as f:
-            self.header = QCOW2File.parse_stream(f)
-            self.clustersize = 1 << self.header.cluster_bits
+        self.header = QCOW2File.parse_stream(self.image_file)
+        self.clustersize = self.header.cluster_size
         # print len(self.header.refcount_table)
         
     def fixed_hiding_spaces(self):
@@ -199,24 +238,12 @@ class QCOW2Hider(Hider):
         l2_entries = (self.clustersize / ENTRY_SIZE)
         l2_index = (offset / self.clustersize) % l2_entries
         l1_index = (offset / self.clustersize) / l2_entries
-        with open(self.image_path) as f:
-            f.seek(self.header.l1_table_offset)
-            l1_table = f.read(self.header.l1_size * ENTRY_SIZE)
-            print "    l1 index:", l1_index
-            print "    l1 size:", self.header.l1_size
-            if l1_index >= self.header.l1_size:
-                return None
-            print len(l1_table[l1_index*ENTRY_SIZE:(l1_index+1)*ENTRY_SIZE])
-            l1_entry = struct.unpack(">Q", l1_table[l1_index*ENTRY_SIZE:(l1_index+1)*ENTRY_SIZE])[0]
-            print "    L2 entry:", hex(l1_entry)
-            l2_table_offset = l1_entry & 0x00ffffffffffff00
-            print "    L2 offset:", l2_table_offset
-            f.seek(l2_table_offset)
-            l2_table = f.read(self.clustersize)
-            l2_table_entry = struct.unpack(">Q", l2_table[l2_index*ENTRY_SIZE:(l2_index+1)*ENTRY_SIZE])[0]
-            print "    L2 entry:", hex(l2_table_entry)
-            cluster_offset = l2_table_entry & 0x00ffffffffffff00
-            print "    cluster offset:", cluster_offset
+        if not l1_index < self.header.l1_size-1:
+            return None
+        cluster_offset = self.header.l1_table.value[l1_index].l2_table.value[l2_index].offset
+        print "  l1 offset:", self.header.l1_table_offset, "  l2_offset:", self.header.l1_table.value[l1_index].offset
+        print "  cluster offset:", cluster_offset
+        print "  data:", self.header.l1_table.value[l1_index].l2_table.value[l2_index].
         return cluster_offset + (offset % self.clustersize)
 
 VDIHeader = Struct("vdi_header",
@@ -259,9 +286,8 @@ VDIFile = Struct("vdi_file",
 
 class VDIHider(Hider):
     def parse_header(self):
-        with open(self.image_path) as f:
-            self.header = VDIFile.parse_stream(f)
-            self.clustersize = self.header.block_size
+        self.header = VDIFile.parse_stream(self.image_file)
+        self.clustersize = self.header.block_size
 
     def fixed_hiding_spaces(self):
         # print self.header
@@ -310,9 +336,8 @@ VMDKFile = Struct("vmdk_file",
 
 class VMDKHider(Hider):
     def parse_header(self):
-        with open(self.image_path) as f:
-            self.header = VMDKFile.parse_stream(f)
-            self.clustersize = self.header.grainSize * 512
+        self.header = VMDKFile.parse_stream(self.image_file)
+        self.clustersize = self.header.grainSize * 512
         # print self.header
 
     def fixed_hiding_spaces(self):
@@ -417,10 +442,10 @@ VHDFile = Struct("vhd_file",
 
 
 class VHDHider(Hider):
+    
     def parse_header(self):
-        with open(self.image_path) as f:
-            self.header = VHDFile.parse_stream(f)
-            self.clustersize = self.header.block_size
+        self.header = VHDFile.parse_stream(self.image_file)
+        self.clustersize = self.header.block_size
 
     def fixed_hiding_spaces(self):
         return[
@@ -477,6 +502,7 @@ class VHDHider(Hider):
         _insert_into_file(self.image_path, file_size - footer_len, data)
             
 class RAWHider(Hider):
+
     def extending_hiding_spaces(self):
         """returns the starts of places where data may be hidden but the file will have to be extended. Returns a list of (start, length) tuples where length is None if the space available is 2**31 or greater"""
         # these locations can store arbitrary amounts of data
@@ -485,6 +511,7 @@ class RAWHider(Hider):
         if free_space == 0:
             free_space = 511
         return [(st.size, free_space)]
+
     def hide_extending(self, start, data):
         if start == os.path.getsize(self.image_path):
             _hide_at_end(self.image_path, data, self.clustersize)

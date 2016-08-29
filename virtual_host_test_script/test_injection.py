@@ -30,10 +30,8 @@ def find_free_log_fname():
     return log_fname
 
 def log(s):
-    with open(log_fname, "a") as f:
-        print("log:" + s)
-        f.write(s + "\n")
-    sync()
+    print("log:" + s)
+    log_file.write(s + "\n")
 
 def disc_hash(fname):
     h = hash_fn()
@@ -56,6 +54,8 @@ def write_randomly(fname, n, s, r):
 
 
 log_fname = find_free_log_fname()
+log_file = open(log_fname, "a")
+
 log("Run:" + datetime.datetime.now().isoformat())
 
 try:
@@ -74,13 +74,15 @@ h = disc_hash(disc_fname)
 if hash_sum_str is None:
     with open(md5_sum_fname, "w") as f:
         f.write(h)
+    log_file.close()
+    sync()
     call(["poweroff"])
 else:
-    print "heeeere"
     s1 = str(h) + " ?= " + hash_sum_str
-    print s1
     log(s1)
     r = random.Random(31337)
     write_randomly(disc_fname, N_WRITES, 'B', r)
+    log_file.close()
+    sync()
     # os.unlink(md5_sum_fname)
     call(["poweroff"])
