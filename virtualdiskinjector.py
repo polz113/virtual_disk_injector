@@ -243,7 +243,7 @@ class QCOW2Hider(Hider):
         cluster_offset = self.header.l1_table.value[l1_index].l2_table.value[l2_index].offset
         print "  l1 offset:", self.header.l1_table_offset, "  l2_offset:", self.header.l1_table.value[l1_index].offset
         print "  cluster offset:", cluster_offset
-        print "  data:", self.header.l1_table.value[l1_index].l2_table.value[l2_index].
+        print "  data:", self.header.l1_table.value[l1_index].l2_table.value[l2_index].cluster_data.value[offset % self.clustersize]
         return cluster_offset + (offset % self.clustersize)
 
 VDIHeader = Struct("vdi_header",

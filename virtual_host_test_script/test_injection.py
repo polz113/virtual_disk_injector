@@ -81,6 +81,7 @@ else:
     s1 = str(h) + " ?= " + hash_sum_str
     log(s1)
     r = random.Random(31337)
+    foo = raw_input("waiting")
     write_randomly(disc_fname, N_WRITES, 'B', r)
     log_file.close()
     sync()
