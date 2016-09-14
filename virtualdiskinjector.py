@@ -156,6 +156,8 @@ QCOW2Header = Struct("qcow2_header",
     #                images, the order is always assumed to be 4
     #                (i.e. refcount_bits = 16).
     #                This value may not exceed 6 (i.e. refcount_bits = 64).
+    Value("refcount_bits", lambda ctx: 1 << ctx.refcount_order),
+    Value("refcount_bytes", lambda ctx: 1 << (ctx.refcount_order - 3)),
     UBInt32("header_length"),
     #                Length of the header structure in bytes. For version 2
     #                images, the length is always assumed to be 72 bytes.
@@ -184,6 +186,29 @@ QCOW2L1ClusterDescriptor = Struct("l1_table",
         0b0000000111111111111111111111111111111111111111111111111000000000),
     OnDemandPointer(lambda ctx: ctx.offset, QCOW2L2Table)
 )
+        
+QCOW2RefcountBlock = Array(
+    lambda ctx: ctx._.cluster_size / ctx._.refcount_bytes,
+    Switch("refcount_data", lambda ctx: ctx._.refcount_bits,
+           {
+               8: UBInt8("count"),
+               16: UBInt16("count"), # this is the default
+               # 24: UBInt24("count"),
+               32: UBInt32("count"),
+               # 40: UBInt40("count"),
+               # 48: UBInt48("count"),
+               # 56: UBInt56("count"),
+               64: UBInt64("count"),
+            }
+        )
+)
+
+QCOW2RefcountTable = Struct("refcount_table",
+    UBInt64("descriptor"),
+    Value("offset", lambda ctx: ctx.descriptor & \
+        0b0000000111111111111111111111111111111111111111111111111000000000),
+    OnDemandPointer(lambda ctx: ctx.offset, QCOW2RefcountBlock)
+)
 
 QCOW2File = Struct("qcow2_file",
     Embed(QCOW2Header),
@@ -194,8 +219,8 @@ QCOW2File = Struct("qcow2_file",
                           QCOW2L1ClusterDescriptor)),
     OnDemandPointer(lambda ctx: ctx.refcount_table_offset,
                     Array(lambda ctx:
-                              ctx.refcount_table_clusters*2**(ctx.cluster_bits + 3 - ctx.refcount_order),
-                          Byte("refcount_table"))),
+                              ctx.refcount_table_clusters*2**(ctx.cluster_bits - 8),
+                          QCOW2RefcountTable)),
     #Padding(lambda ctx: ctx.refcount_table_offset - ctx.end_of_extensions),
     #MetaArray(lambda ctx: ctx.refcount_table_clusters*2**(ctx.cluster_bits + 3 - ctx.refcount_order), #Byte("refcount_table")),
     Anchor("end_of_refcount_table"),
