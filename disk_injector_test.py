@@ -51,11 +51,13 @@ and miles to go before I sleep.
     """
     hiding_spaces = dict()
     tester_disk_img = "../data/test_images/tester.vmdk"
-    #for ending, img_type in [('qcow2', 'qcow2'),
-    #                         ('vdi', 'vdi'),
-    #                         ('vmdk', 'vmdk'),
-    #                         ('vhd', 'vpc')]:
-    for ending, img_type in [('qcow2', 'qcow2')]:
+    for ending, img_type in [
+        ('vdi', 'vdi'),
+        ('vhd', 'vpc'),
+        ('qcow2', 'qcow2'),
+        ('vmdk', 'vmdk'),
+    ]:
+    #for ending, img_type in [('qcow2', 'qcow2')]:
         hiding_spaces_list = []
         r = random.Random(SEED)
         img_fname = '../data/test_images/test1.'+ending
@@ -66,8 +68,8 @@ and miles to go before I sleep.
         # in qemu, write 256 ? Bs ?
         c = create_hider(img_fname)
         print "Initial"
-        print "  A:", c.guest_data_offset(1534333117)
-        print "  B:", c.guest_data_offset(2190361692)
+        #print "  A:", c.guest_data_offset(1534333117)
+        #print "  B:", c.guest_data_offset(2190361692)
         call(['cp', img_fname, img_fname + '.orig'])
         call(["qemu-system-x86_64", "--enable-kvm",
                 "-hda", tester_disk_img,
@@ -87,8 +89,8 @@ and miles to go before I sleep.
             hiding_spaces_list.append(space)
         hiding_spaces[img_type] = hiding_spaces_list
         print "After first run"
-        print "  A:", c.guest_data_offset(1534333117)
-        print "  B:", c.guest_data_offset(2190361692)
+        # print "  A:", c.guest_data_offset(1534333117)
+        # print "  B:", c.guest_data_offset(2190361692)
         print "Extending:", extending_spaces
         print "before hiding:", os.stat(img_fname).st_size
         call(['cp', img_fname, img_fname + '.nohide'])
@@ -120,9 +122,9 @@ and miles to go before I sleep.
                 "-hdb", "fat:rw:virtual_host_test_script",
                 "-hdc", img_fname + '.run2_nohide'])
         c = create_hider(img_fname)
-        print "After second run"
-        print "  A:", c.guest_data_offset(1534333117)
-        print "  B:", c.guest_data_offset(2190361692)
+        #print "After second run"
+        #print "  A:", c.guest_data_offset(1534333117)
+        #print "  B:", c.guest_data_offset(2190361692)
         # check the hidden data
         with open(img_fname, 'r') as f:
             f.seek(fixed_spaces[0][0])
