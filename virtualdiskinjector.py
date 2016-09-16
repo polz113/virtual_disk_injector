@@ -4,6 +4,7 @@
 import os
 import struct
 from construct import *
+from construct.lib.py3compat import BytesIO
 import tempfile
 
 class Hider():
@@ -18,7 +19,7 @@ class Hider():
 
     def __init__(self, image_path):
         self.image_path = image_path
-        self.image_file = open(self.image_path)
+        self.image_file = open(self.image_path, 'rb+')
         self.parse_header()
 
     def __del__(self):
@@ -251,10 +252,38 @@ class QCOW2Hider(Hider):
         return [(file_size, None)]
         return []
     
+    #TODO grow refcount table if neccessarry
+    def change_refcounts(self, start, length, ref_change):
+        class Foo():
+            _ = self.header
+        ctx = Foo()
+        offset = start - (start % self.clustersize)
+        if self.clustersize % length != 0:
+            length = (length / self.clustersize + 1) * self.clustersize
+        old_refcount_table_index = None
+        refcount_data = None
+        while length > 0:
+            refcount_table_index, refcount_block_index = self.refcount_index(offset)
+            if refcount_table_index != old_refcount_table_index:
+                if refcount_data is not None:
+                    QCOW2RefcountBlock._build(refcount_data, self.image_file, ctx)
+                refcount_table = self.header.refcount_table.value
+                refcount_block = refcount_table[refcount_table_index]
+                if refcount_block.offset == 0:
+                    break
+                self.image_file.seek(refcount_block.offset)
+                refcount_data = refcount_block.refcount_data.value
+            refcount_data[refcount_block_index] += ref_change
+            length -= self.clustersize
+            offset += self.clustersize
+        if refcount_data is not None:
+            QCOW2RefcountBlock._build(refcount_data, self.image_file, ctx)
+    
     def hide_extending(self, start, data):
         """hide the data by extending the virtual disk image. Updates the neccessary structures in the imagge."""
         if start == os.path.getsize(self.image_path):
             _hide_at_end(self.image_path, data, self.clustersize)
+            self.change_refcounts(start, len(data), +1)
         else:
             raise Exception("Unsupported place for extended hiding")
     
@@ -270,6 +299,19 @@ class QCOW2Hider(Hider):
         print "  cluster offset:", cluster_offset
         print "  data:", self.header.l1_table.value[l1_index].l2_table.value[l2_index].cluster_data.value[offset % self.clustersize]
         return cluster_offset + (offset % self.clustersize)
+    
+    def refcount_index(self, offset):
+        ENTRY_SIZE = 8
+        refcount_block_entries = (self.clustersize * ENTRY_SIZE / self.header.refcount_bits)
+        refcount_block_index = (offset / self.clustersize) % refcount_block_entries
+        refcount_table_index = (offset / self.clustersize) / refcount_block_entries        
+        return (refcount_table_index, refcount_block_index)
+        
+    def refcount_entry_offset(self, offset):
+        table_index, block_index = self.refcount_index(offset)
+        refcount_block_offset = self.header.refcount_table.value[table_index].offset
+        return refcount_block_offset + block_index * self.header.refcount_bytes
+
 
 VDIHeader = Struct("vdi_header",
     String("text", 0x40),
