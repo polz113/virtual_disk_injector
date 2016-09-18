@@ -419,7 +419,7 @@ VMDKSparseHeader = Struct("vmdk_sparse_header",
     ULInt8("doubleEndLineChar2"),
     ULInt16("compressAlgorithm"),
     Anchor("end_of_header_data"),
-    Padding(433),
+    Bytes("pad1", 433),
 )
 
 VMDKFile = Struct("vmdk_file",
