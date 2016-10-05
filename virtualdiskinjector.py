@@ -330,6 +330,7 @@ VDIHeader = Struct("vdi_header",
     ULInt32("unused1"),
     ULInt64("disk_size"),
     ULInt32("block_size"),
+    Value("cluster_size", lambda ctx: ctx.block_size),
     ULInt32("block_extra"),
     ULInt32("blocks_in_image"),
     ULInt32("blocks_allocated"),
@@ -380,6 +381,7 @@ VMDKSparseHeader = Struct("vmdk_sparse_header",
     ULInt32("flags"),
     ULInt64("capacity"), # in sectors
     ULInt64("grainSize"), # in sectors
+    Value("cluster_size", lambda ctx: ctx.grainSize * 512),
     ULInt64("descriptorOffset"), # in sectors
     ULInt64("descriptorSize"), # in sectors
     ULInt32("numGTEsPerGT"), 
@@ -485,6 +487,7 @@ VHDHeader = VHDChecksumCalculator(Struct("vhd_header",
     UBInt32("header_version"),
     UBInt32("max_table_entries"),
     UBInt32("block_size"),
+    Value("cluster_size", lambda ctx: ctx.block_size),
     Anchor("before_header_checksum"),
     UBInt32("checksum"),
     Anchor("after_header_checksum"),
