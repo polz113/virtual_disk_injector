@@ -342,14 +342,22 @@ VDIHeader = Struct("vdi_header",
     Padding(7*8),
 )
 
+VDIDataCluster = Array(
+    lambda ctx: ctx._.block_size,
+      Byte("cluster_data"),
+)
+
+VDIBlockDescriptor = Struct("block_map",
+    UBInt32("offset"),
+    OnDemandPointer(lambda ctx: ctx.offset, VDIDataCluster)
+)
+
 VDIFile = Struct("vdi_file",
     Embed(VDIHeader),
     Anchor("end_of_header"),
-    Padding(lambda ctx:ctx.offset_bmap - ctx.end_of_header),
-    MetaArray(lambda ctx:ctx.blocks_in_image, ULInt32("bmap")),
-    Anchor("end_of_bmap"),
-    Padding(lambda ctx:ctx.offset_data - ctx.end_of_bmap),
-    Anchor("start_of_data")
+    OnDemandPointer(lambda ctx: ctx.offset_bmap,
+                    Array(lambda ctx: ctx.blocks_in_image,
+                          VDIBlockDescriptor)),
 )
 
 class VDIHider(Hider):
@@ -374,6 +382,12 @@ class VDIHider(Hider):
             _hide_at_end(self.image_path, data, self.clustersize)
         else:
             raise Exception("Unsupported place for extended hiding")
+
+    def guest_data_offset(self, offset):
+        table_offset = offset / self.header.block_size
+        block_offset = self.header.block_map.value[table_offset].offset
+        return block_offset + (offset % self.header.block_size)
+    
 
 VMDKSparseHeader = Struct("vmdk_sparse_header",
     ULInt32("magicNumber"),
@@ -507,6 +521,7 @@ VHDHeader = VHDChecksumCalculator(Struct("vhd_header",
 VHDFile = Struct("vhd_file",
     Embed(VHDHeader),
     # String("raw_bat", 8*1537)
+    
     MetaArray(lambda ctx:ctx.max_table_entries, UBInt32("BAT")),
 )
 
