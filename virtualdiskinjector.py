@@ -3,6 +3,7 @@
 
 import os
 import struct
+import math
 from construct import *
 from construct.lib.py3compat import BytesIO
 import tempfile
@@ -39,17 +40,18 @@ class Hider():
 
     def hide_fixed(self, start, data):
         """hide the data without extending the virtual disk image. Performs no checking but updates the neccessarry structures in the image."""
-        with open(self.image_path, 'r+b') as f:
-            f.seek(start)
-            f.write(data)
+        self.image_file.seek(start)
+        self.image_file.write(data)
+        self.image_file.seek(0)
+        self.parse_header()
 
     def hide_extending(self, start, data):
         """hide the data by extending the virtual disk image. Updates the neccessary structures in the image."""
         pass
 
-def _hide_at_end(fname, data, clustersize):
+def _hide_at_end(fname, data, cluster_size):
     file_size = os.path.getsize(fname)
-    _insert_into_file(fname, file_size, data, clustersize)
+    _insert_into_file(fname, file_size, data, cluster_size)
        
 def _insert_into_file(fname, pos, data, alignment = 1, padding_char = "\0"):
     t = tempfile.TemporaryFile()
@@ -237,7 +239,7 @@ class QCOW2Hider(Hider):
         
     def parse_header(self):
         self.header = QCOW2File.parse_stream(self.image_file)
-        self.clustersize = self.header.cluster_size
+        self.cluster_size = self.header.cluster_size
         # print len(self.header.refcount_table)
         
     def fixed_hiding_spaces(self):
@@ -257,9 +259,9 @@ class QCOW2Hider(Hider):
         class Foo():
             _ = self.header
         ctx = Foo()
-        offset = start - (start % self.clustersize)
-        if self.clustersize % length != 0:
-            length = (length / self.clustersize + 1) * self.clustersize
+        offset = start - (start % self.cluster_size)
+        if self.cluster_size % length != 0:
+            length = (length / self.cluster_size + 1) * self.cluster_size
         old_refcount_table_index = None
         refcount_data = None
         while length > 0:
@@ -274,37 +276,37 @@ class QCOW2Hider(Hider):
                 self.image_file.seek(refcount_block.offset)
                 refcount_data = refcount_block.refcount_data.value
             refcount_data[refcount_block_index] += ref_change
-            length -= self.clustersize
-            offset += self.clustersize
+            length -= self.cluster_size
+            offset += self.cluster_size
         if refcount_data is not None:
             QCOW2RefcountBlock._build(refcount_data, self.image_file, ctx)
     
     def hide_extending(self, start, data):
         """hide the data by extending the virtual disk image. Updates the neccessary structures in the imagge."""
         if start == os.path.getsize(self.image_path):
-            _hide_at_end(self.image_path, data, self.clustersize)
+            _hide_at_end(self.image_path, data, self.cluster_size)
             self.change_refcounts(start, len(data), +1)
         else:
             raise Exception("Unsupported place for extended hiding")
     
     def guest_data_offset(self, offset):
         ENTRY_SIZE = 8
-        l2_entries = (self.clustersize / ENTRY_SIZE)
-        l2_index = (offset / self.clustersize) % l2_entries
-        l1_index = (offset / self.clustersize) / l2_entries
+        l2_entries = (self.cluster_size / ENTRY_SIZE)
+        l2_index = (offset / self.cluster_size) % l2_entries
+        l1_index = (offset / self.cluster_size) / l2_entries
         if not l1_index < self.header.l1_size-1:
             return None
         cluster_offset = self.header.l1_table.value[l1_index].l2_table.value[l2_index].offset
-        print "  l1 offset:", self.header.l1_table_offset, "  l2_offset:", self.header.l1_table.value[l1_index].offset
-        print "  cluster offset:", cluster_offset
-        print "  data:", self.header.l1_table.value[l1_index].l2_table.value[l2_index].cluster_data.value[offset % self.clustersize]
-        return cluster_offset + (offset % self.clustersize)
+        #print "  l1 offset:", self.header.l1_table_offset, "  l2_offset:", self.header.l1_table.value[l1_index].offset
+        #print "  cluster offset:", cluster_offset
+        #print "  data:", self.header.l1_table.value[l1_index].l2_table.value[l2_index].cluster_data.value[offset % self.cluster_size]
+        return cluster_offset + (offset % self.cluster_size)
     
     def refcount_index(self, offset):
         ENTRY_SIZE = 8
-        refcount_block_entries = (self.clustersize * ENTRY_SIZE / self.header.refcount_bits)
-        refcount_block_index = (offset / self.clustersize) % refcount_block_entries
-        refcount_table_index = (offset / self.clustersize) / refcount_block_entries        
+        refcount_block_entries = (self.cluster_size * ENTRY_SIZE / self.header.refcount_bits)
+        refcount_block_index = (offset / self.cluster_size) % refcount_block_entries
+        refcount_table_index = (offset / self.cluster_size) / refcount_block_entries        
         return (refcount_table_index, refcount_block_index)
         
     def refcount_entry_offset(self, offset):
@@ -322,7 +324,9 @@ VDIHeader = Struct("vdi_header",
     ULInt32("image_flags"),
     String("description", 256),
     ULInt32("offset_bmap"),
+    # OnDemandPointer(lambda ctx: ctx.offset_bmap, VDIBlockMap),
     ULInt32("offset_data"),
+    # OnDemandPointer(lambda ctx: ctx.offset_data, VDIBlockMap),
     ULInt32("cylinders"),
     ULInt32("heads"),
     ULInt32("sectors"),
@@ -339,31 +343,36 @@ VDIHeader = Struct("vdi_header",
     String("uuid_link", 16),
     String("uuid_parent", 16),
     Anchor("end_of_header_data"),
-    Padding(7*8),
+    Bytes("pad1", 7*8),
 )
 
-VDIDataCluster = Array(
-    lambda ctx: ctx._.block_size,
-      Byte("cluster_data"),
+VDIDataBlock = Bytes("data", lambda ctx: ctx._.block_size)
+
+VDIBlockPointer = Struct("block_map",
+    ULInt32("offset"),
+    OnDemandPointer(lambda ctx: ctx.offset, VDIDataBlock),
 )
 
-VDIBlockDescriptor = Struct("block_map",
-    UBInt32("offset"),
-    OnDemandPointer(lambda ctx: ctx.offset, VDIDataCluster)
+VDIBlockMap = Array(
+    lambda ctx: ctx.blocks_in_image,
+    VDIBlockPointer,
 )
 
 VDIFile = Struct("vdi_file",
     Embed(VDIHeader),
     Anchor("end_of_header"),
-    OnDemandPointer(lambda ctx: ctx.offset_bmap,
-                    Array(lambda ctx: ctx.blocks_in_image,
-                          VDIBlockDescriptor)),
+    Bytes("pad2", lambda ctx:ctx.offset_bmap - ctx.end_of_header),
+    VDIBlockMap,
+    #MetaArray(lambda ctx:ctx.blocks_in_image, ULInt32("bmap")),
+    Anchor("end_of_bmap"),
+    Bytes("pad3", lambda ctx:ctx.offset_data - ctx.end_of_bmap),
+    Anchor("start_of_data")
 )
 
 class VDIHider(Hider):
     def parse_header(self):
         self.header = VDIFile.parse_stream(self.image_file)
-        self.clustersize = self.header.block_size
+        self.cluster_size = self.header.cluster_size
 
     def fixed_hiding_spaces(self):
         # print self.header
@@ -379,13 +388,20 @@ class VDIHider(Hider):
     def hide_extending(self, start, data):
         """hide the data by extending the virtual disk image. Updates the neccessary structures in the image."""
         if start == os.path.getsize(self.image_path):
-            _hide_at_end(self.image_path, data, self.clustersize)
+            _hide_at_end(self.image_path, data, self.cluster_size)
+            n = int(math.ceil(1.0 * len(data) / self.cluster_size))
+            self.header.blocks_allocated += n
+            self.image_file.seek(0)
+            VDIHeader.build_stream(self.header, self.image_file)
+            self.image_file.close()
+            self.image_file = open(self.image_path, "rb+")
+            self.parse_header()
         else:
             raise Exception("Unsupported place for extended hiding")
 
     def guest_data_offset(self, offset):
         table_offset = offset / self.header.block_size
-        block_offset = self.header.block_map.value[table_offset].offset
+        block_offset = self.header.block_map[table_offset].offset
         return block_offset + (offset % self.header.block_size)
     
 
@@ -409,7 +425,19 @@ VMDKSparseHeader = Struct("vmdk_sparse_header",
     ULInt8("doubleEndLineChar2"),
     ULInt16("compressAlgorithm"),
     Anchor("end_of_header_data"),
-    Padding(433),
+    Bytes("pad1", 433),
+)
+
+VMDKDataBlock = Bytes("data", lambda ctx: ctx._.cluster_size)
+
+VMDKBlockPointer = Struct("block_map",
+    ULInt32("offset"),
+    OnDemandPointer(lambda ctx: ctx.offset, VMDKDataBlock),
+)
+
+VMDKBlockMap = Array(
+    lambda ctx: ctx.blocks_in_image,
+    VMDKBlockPointer,
 )
 
 VMDKFile = Struct("vmdk_file",
@@ -420,7 +448,7 @@ VMDKFile = Struct("vmdk_file",
 class VMDKHider(Hider):
     def parse_header(self):
         self.header = VMDKFile.parse_stream(self.image_file)
-        self.clustersize = self.header.grainSize * 512
+        self.cluster_size = self.header.cluster_size
         # print self.header
 
     def fixed_hiding_spaces(self):
@@ -435,9 +463,16 @@ class VMDKHider(Hider):
     def hide_extending(self, start, data):
         """hide the data by extending the virtual disk image. Updates the neccessary structures in the image."""
         if start == os.path.getsize(self.image_path):
-            _hide_at_end(self.image_path, data, self.clustersize)
+            _hide_at_end(self.image_path, data, self.cluster_size)
         else:
             raise Exception("Unsupported place for extended hiding")
+
+    def guest_data_offset(self, offset):
+        return None
+        table_offset = offset / self.header.block_size
+        block_offset = self.header.block_map[table_offset].offset
+        return block_offset + (offset % self.header.block_size)
+    
 
 class VHDChecksumCalculator(Subconstruct):
     def _build(self, obj, stream, context):
@@ -492,6 +527,27 @@ VHDParentLocator = Struct("vhd_parent_locator",
     UBInt64("platform_data_offset"),
 )
 
+VHDParentDataCluster = Array(
+    lambda ctx: ctx._.cluster_size,
+    Byte("cluster_data"),
+)
+
+VHDDataBlock = Struct("data_block",
+    Bytes("bitmap", lambda ctx: ctx._.bitmap_size),
+    Bytes("data", lambda ctx: ctx._.cluster_size)
+)
+
+VHDBlockPointer = Struct("block_map",
+    UBInt32("sector_offset"),
+    Value("offset", lambda ctx: ctx.sector_offset * 512),
+    # OnDemandPointer(lambda ctx: ctx.offset, VHDDataBlock),
+)
+
+VHDBlockMap = Array(
+    lambda ctx: ctx.max_table_entries,
+    VHDBlockPointer,
+)
+
 VHDHeader = VHDChecksumCalculator(Struct("vhd_header",
     Rename("footer_copy", VHDFooter),
     Anchor("end_of_footer_copy"),
@@ -502,6 +558,7 @@ VHDHeader = VHDChecksumCalculator(Struct("vhd_header",
     UBInt32("max_table_entries"),
     UBInt32("block_size"),
     Value("cluster_size", lambda ctx: ctx.block_size),
+    Value("bitmap_size", lambda ctx: (ctx.block_size / (8 * 512) + 511) & ~511),
     Anchor("before_header_checksum"),
     UBInt32("checksum"),
     Anchor("after_header_checksum"),
@@ -516,21 +573,22 @@ VHDHeader = VHDChecksumCalculator(Struct("vhd_header",
     Anchor("end_of_header"),
     MetaArray(lambda ctx: ctx.table_offset - ctx.end_of_header, Byte("padding_before_BAT")),
     Anchor("start_of_BAT"),
+    VHDBlockMap,
 ))
 
 VHDFile = Struct("vhd_file",
     Embed(VHDHeader),
     # String("raw_bat", 8*1537)
-    
-    MetaArray(lambda ctx:ctx.max_table_entries, UBInt32("BAT")),
+    # MetaArray(lambda ctx:ctx.max_table_entries, UBInt32("BAT")),
 )
 
 
 class VHDHider(Hider):
     
     def parse_header(self):
+        self.image_file.seek(0)
         self.header = VHDFile.parse_stream(self.image_file)
-        self.clustersize = self.header.block_size
+        self.cluster_size = self.header.cluster_size
 
     def fixed_hiding_spaces(self):
         return[
@@ -542,10 +600,11 @@ class VHDHider(Hider):
         """returns the starts of places where data may be hidden but the file will have to be extended. Returns a list of (start, length) tuples where length is None if the space available is 2**31 or greater"""
         # these locations can store arbitrary amounts of data
         file_size = os.path.getsize(self.image_path)
-        footer_len = file_size % 512
-        if footer_len == 0:
-            footer_len = 512
-        return [(file_size - footer_len, None)]
+        l = []
+        for i in self.header.block_map:
+            if i.sector_offset != 2**32 - 1:
+                l.append((i.offset, None))
+        return l
 
     def hide_fixed(self, start, data):
         """hide the data without extending the virtual disk image. Performs no checking but updates the neccessarry structures in the image."""
@@ -568,23 +627,51 @@ class VHDHider(Hider):
             footer_len = file_size % 512
             if footer_len == 0:
                 footer_len = 512
-            with open(self.image_path, 'rb+') as f:
-                f.seek(0)
-                f.write(header_str)
-                f.seek(-footer_len, 2)
-                f.write(header_str[:footer_len])
+            self.image_file.seek(0)
+            self.image_file.write(header_str)
+            self.image_file.seek(-footer_len, 2)
+            self.image_file.write(header_str[:footer_len])
             self.header = new_header
-        with open(self.image_path, 'rb+') as f: 
-            f.seek(start)
-            f.write(data)
+        self.image_file.seek(start)
+        self.image_file.write(data)
 
     def hide_extending(self, start, data):
         """hide the data by extending the virtual disk image. Updates the neccessary structures in the image."""
-        file_size = os.path.getsize(self.image_path)
-        footer_len = file_size % 512
-        if footer_len == 0:
-            footer_len = 512
-        _insert_into_file(self.image_path, file_size - footer_len, data)
+        if (len(data) % 512) != 0:
+            data = data + "\0" * (512 - (len(data) % 512))
+        sector_len = len(data) / 512
+        start_OK = False
+        offsets = []
+        sector_start = start / 512
+        for i in self.header.block_map:
+            
+            sector_offset = i.sector_offset
+            if sector_offset != 2**32-1 and sector_offset >= sector_start:
+                if sector_offset == sector_start:
+                    start_OK = True
+                sector_offset += sector_len
+            offsets.append(sector_offset)
+        if not start_OK:
+            raise Exception("Unsupported hiding place")
+        _insert_into_file(self.image_path, start, data)
+        block_map = Array(len(offsets),
+            UBInt32("sector_offset"))
+        # print "offsets:", offsets
+        self.image_file.seek(self.header.table_offset)
+        block_map.build_stream(offsets, self.image_file)
+        self.parse_header()
+        # VHDBlockMap._build(self.header.block_map, self.image_file, self.header)        
+
+    def guest_data_offset(self, offset):
+        pagetable_index = offset / self.header.block_size;
+        pageentry_index = (offset % self.header.block_size) / 512;
+        if (pagetable_index >= self.header.max_table_entries or \
+                self.header.block_map[pagetable_index] == 0xffffffff):
+            return None
+        bitmap_offset = 512 * self.header.block_map[pagetable_index].offset
+        block_offset = bitmap_offset + self.header.bitmap_size + (512 * pageentry_index)
+        return block_offset
+    
             
 class RAWHider(Hider):
 
@@ -599,9 +686,12 @@ class RAWHider(Hider):
 
     def hide_extending(self, start, data):
         if start == os.path.getsize(self.image_path):
-            _hide_at_end(self.image_path, data, self.clustersize)
+            _hide_at_end(self.image_path, data, self.cluster_size)
         else:
             raise Exception("Unsupported place for extended hiding")
+
+    def guest_data_offset(self, offset):
+        return offset
 
 
 def create_hider(src_fname, dst_fname=None, in_place=False):

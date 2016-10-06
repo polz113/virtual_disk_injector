@@ -53,9 +53,9 @@ and miles to go before I sleep.
     tester_disk_img = "../data/test_images/tester.vmdk"
     for ending, img_type in [
                             ('vhd', 'vpc'),
-                            ('vdi', 'vdi'),
-                            ('qcow2', 'qcow2'),
-                            ('vmdk', 'vmdk'),
+                            #('vdi', 'vdi'),
+                            #('qcow2', 'qcow2'),
+                            #('vmdk', 'vmdk'),
             ]:
     #for ending, img_type in [('qcow2', 'qcow2')]:
         hiding_spaces_list = []
@@ -89,8 +89,8 @@ and miles to go before I sleep.
             hiding_spaces_list.append(space)
         hiding_spaces[img_type] = hiding_spaces_list
         print "After first run"
-        #print "  A:", c.guest_data_offset(1534333117)
-        #print "  B:", c.guest_data_offset(2190361692)
+        print "  A:", c.guest_data_offset(1534333117)
+        print "  B:", c.guest_data_offset(2190361692)
         print "Extending:", extending_spaces
         print "before hiding:", os.stat(img_fname).st_size
         call(['cp', img_fname, img_fname + '.nohide'])
@@ -104,7 +104,7 @@ and miles to go before I sleep.
             assert d1 == static_data
             f.seek(extending_spaces[0][0])
             d2 = f.read(len(extending_data))
-            print "extending pre-check"
+            print "extending pre-check on", img_fname
             print "match:", count_matches(d2, extending_data)
             # print d2
             assert d2 == extending_data
@@ -123,8 +123,8 @@ and miles to go before I sleep.
                 "-hdc", img_fname + '.run2_nohide'])
         c = create_hider(img_fname)
         print "After second run"
-        #print "  A:", c.guest_data_offset(1534333117)
-        #print "  B:", c.guest_data_offset(2190361692)
+        print "  A:", c.guest_data_offset(1534333117)
+        print "  B:", c.guest_data_offset(2190361692)
         # check the hidden data
         with open(img_fname, 'r') as f:
             f.seek(fixed_spaces[0][0])
@@ -132,7 +132,7 @@ and miles to go before I sleep.
             assert d1 == static_data
             f.seek(extending_spaces[0][0])
             d2 = f.read(len(extending_data))
-            print "extending check"
+            print "extending check on", img_fname 
             print "match:", count_matches(d2, extending_data)
             assert d2 == extending_data
         os.unlink(md5_sum_fname)
