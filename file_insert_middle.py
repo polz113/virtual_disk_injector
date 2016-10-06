@@ -1,4 +1,4 @@
-def insert_middle(fname, data, offset, block_size = 2**16):
+def insert_middle_inplace(fname, offset, data, block_size = 2**16):
     f_read = open(fname, 'rb')
     f_write = open(fname, 'rb+')
     to_insert = len(data)
@@ -29,3 +29,21 @@ def insert_middle(fname, data, offset, block_size = 2**16):
     f_write.write(data)
     f_read.close()
     f_write.close()
+    
+def insert_middle_copy(fname, data, offset, block_size = 2**16):
+    t = tempfile.TemporaryFile()
+    with open(fname, 'rb+') as f:
+        f.seek(pos)
+        while 1:
+            tmp = f.read(block_size)
+            if not tmp:
+                break
+            t.write(tmp)
+        f.seek(pos)
+        f.write(data)
+        t.seek(0)
+        while 1:
+            tmp = t.read(block_size)
+            if not tmp:
+                break
+            f.write(tmp)

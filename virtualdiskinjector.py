@@ -7,6 +7,7 @@ import math
 from construct import *
 from construct.lib.py3compat import BytesIO
 import tempfile
+from file_insert_middle import insert_middle_inplace, insert_middle_copy
 
 class Hider():
     def __str__(self):
@@ -53,30 +54,17 @@ def _hide_at_end(fname, data, cluster_size):
     file_size = os.path.getsize(fname)
     _insert_into_file(fname, file_size, data, cluster_size)
        
-def _insert_into_file(fname, pos, data, alignment = 1, padding_char = "\0"):
-    t = tempfile.TemporaryFile()
-    with open(fname, 'rb+') as f:
-        f.seek(pos)
-        while 1:
-            tmp = f.read(alignment)
-            if not tmp:
-                break
-            t.write(tmp)
-        f.seek(pos)
-        f.write(data)
-        end_of_data = f.tell()
-        required_padding = end_of_data % alignment
-        for r in xrange(0, required_padding):
-            # add padding to cluster size
-            f.write(padding_char[0])
-        # return len(data) + required_padding
-        t.seek(0)
-        while 1:
-            tmp = t.read(alignment)
-            if not tmp:
-                break
-            f.write(tmp)
-    return len(data) + required_padding
+       
+def _insert_into_file(fname, pos, data, alignment = 1, padding_char = "\0", in_place = True):
+    BLOCK_SIZE = 2**12
+    end_of_data = pos + len(data)
+    required_padding = alignment - (end_of_data % alignment)
+    data = data + padding_char[0] * required_padding
+    if in_place:
+        insert_middle_inplace(fname, offset=pos, data=data, block_size=BLOCK_SIZE)
+    else:
+        insert_middle_copy(fname, offset=pos, data=data, block_size=BLOCK_SIZE)
+    return len(data)
 
 QCOW2HeaderExtension = Struct("qcow2_header_extension",
     UBInt32("type"),

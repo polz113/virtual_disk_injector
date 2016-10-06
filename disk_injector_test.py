@@ -53,9 +53,9 @@ and miles to go before I sleep.
     tester_disk_img = "../data/test_images/tester.vmdk"
     for ending, img_type in [
                             ('vhd', 'vpc'),
-                            #('vdi', 'vdi'),
-                            #('qcow2', 'qcow2'),
-                            #('vmdk', 'vmdk'),
+                            ('vdi', 'vdi'),
+                            ('qcow2', 'qcow2'),
+                            ('vmdk', 'vmdk'),
             ]:
     #for ending, img_type in [('qcow2', 'qcow2')]:
         hiding_spaces_list = []
