@@ -33,12 +33,11 @@ def count_matches(s1, s2):
     
 
 def __main__():
-    N_WRITES = 256
     SEED = 31337
     DISK_SIZE = 3*(2**30)
     SECTOR_SIZE = 512
     static_data = "C" * 32
-    extending_data = "D" * 2**18
+    extending_data = "D" * 2**24
     """The woods are lovely, dark and deep
 but I have promises to keep
 and miles to go before I sleep.
@@ -51,6 +50,8 @@ and miles to go before I sleep.
     """
     hiding_spaces = dict()
     tester_disk_img = "../data/test_images/tester.vmdk"
+    orig_prototype = None
+    orig_prototype_img_type = None
     for ending, img_type in [
                             ('vhd', 'vpc'),
                             ('vdi', 'vdi'),
@@ -63,11 +64,17 @@ and miles to go before I sleep.
         img_fname = '../data/test_images/test1.'+ending
         print ending
         # create 3GiB image
-        call(["qemu-img", "create", "-f", img_type, img_fname, str(DISK_SIZE)])
+        if orig_prototype is None:
+            orig_prototype = '../data/test_images/test1-prototype.'+ending
+            orig_prototype_img_type = img_type
+            call(["qemu-img", "create", "-f", img_type, orig_prototype, str(DISK_SIZE)])
+        print "converting prototype"
+        call(["qemu-img", 'convert', '-f', orig_prototype_img_type, '-O', img_type, orig_prototype, img_fname])
+        print "done."
         # run virtual_host_test_script/test_injection.py 
         # in qemu, write 256 ? Bs ?
-        c = create_hider(img_fname)
-        print "Initial"
+        #c = create_hider(img_fname)
+        #print "Initial"
         #print "  A:", c.guest_data_offset(1534333117)
         #print "  B:", c.guest_data_offset(2190361692)
         call(['cp', img_fname, img_fname + '.orig'])
@@ -75,7 +82,6 @@ and miles to go before I sleep.
                 "-hda", tester_disk_img,
                 "-hdb", "fat:rw:virtual_host_test_script",
                 "-hdc", img_fname])
-        call(['cp', img_fname, img_fname + '.run1'])
         # identify spaces
         c = create_hider(img_fname)
         fixed_spaces = c.fixed_hiding_spaces()
@@ -88,9 +94,9 @@ and miles to go before I sleep.
         for space in extending_spaces:
             hiding_spaces_list.append(space)
         hiding_spaces[img_type] = hiding_spaces_list
-        print "After first run"
-        print "  A:", c.guest_data_offset(1534333117)
-        print "  B:", c.guest_data_offset(2190361692)
+        #print "After first run"
+        #print "  A:", c.guest_data_offset(1534333117)
+        #print "  B:", c.guest_data_offset(2190361692)
         print "Extending:", extending_spaces
         print "before hiding:", os.stat(img_fname).st_size
         call(['cp', img_fname, img_fname + '.nohide'])
@@ -115,16 +121,16 @@ and miles to go before I sleep.
                 "-hda", tester_disk_img,
                 "-hdb", "fat:rw:virtual_host_test_script",
                 "-hdc", img_fname])
-        call(['cp', img_fname, img_fname + '.run2_hide'])
-        call(['cp', img_fname + '.nohide', img_fname + '.run2_nohide'])
-        call(["qemu-system-x86_64", "--enable-kvm",
-                "-hda", tester_disk_img,
-                "-hdb", "fat:rw:virtual_host_test_script",
-                "-hdc", img_fname + '.run2_nohide'])
-        c = create_hider(img_fname)
-        print "After second run"
-        print "  A:", c.guest_data_offset(1534333117)
-        print "  B:", c.guest_data_offset(2190361692)
+        #call(['cp', img_fname, img_fname + '.run2_hide'])
+        #call(['cp', img_fname + '.nohide', img_fname + '.run2_nohide'])
+        #call(["qemu-system-x86_64", "--enable-kvm",
+        #        "-hda", tester_disk_img,
+        #        "-hdb", "fat:rw:virtual_host_test_script",
+        #        "-hdc", img_fname + '.run2_nohide'])
+        #c = create_hider(img_fname)
+        #print "After second run"
+        #print "  A:", c.guest_data_offset(1534333117)
+        #print "  B:", c.guest_data_offset(2190361692)
         # check the hidden data
         with open(img_fname, 'r') as f:
             f.seek(fixed_spaces[0][0])

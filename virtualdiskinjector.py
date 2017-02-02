@@ -53,12 +53,11 @@ class Hider():
 def _hide_at_end(fname, data, cluster_size):
     file_size = os.path.getsize(fname)
     _insert_into_file(fname, file_size, data, cluster_size)
-       
-       
+
 def _insert_into_file(fname, pos, data, alignment = 1, padding_char = "\0", in_place = True):
     BLOCK_SIZE = 2**12
     end_of_data = pos + len(data)
-    required_padding = alignment - (end_of_data % alignment)
+    required_padding = (alignment - end_of_data) % alignment
     data = data + padding_char[0] * required_padding
     if in_place:
         insert_middle_inplace(fname, offset=pos, data=data, block_size=BLOCK_SIZE)
@@ -369,7 +368,6 @@ class VDIHider(Hider):
 
     def extending_hiding_spaces(self):
         """returns the starts of places where data may be hidden but the file will have to be extended. Returns a list of (start, length) tuples where length is None if the space available is 2**31 or greater"""
-        """returns the starts of places where data may be hidden but the file will have to be extended"""
         file_size = os.path.getsize(self.image_path)
         return [(file_size, None)]
 
@@ -444,7 +442,6 @@ class VMDKHider(Hider):
 
     def extending_hiding_spaces(self):
         """returns the starts of places where data may be hidden but the file will have to be extended. Returns a list of (start, length) tuples where length is None if the space available is 2**31 or greater"""
-        """returns the starts of places where data may be hidden but the file will have to be extended"""
         file_size = os.path.getsize(self.image_path)
         return [(file_size, None)]
 
@@ -626,13 +623,12 @@ class VHDHider(Hider):
     def hide_extending(self, start, data):
         """hide the data by extending the virtual disk image. Updates the neccessary structures in the image."""
         if (len(data) % 512) != 0:
-            data = data + "\0" * (512 - (len(data) % 512))
+            data = data + "\0" * ((512 - len(data)) % 512)
         sector_len = len(data) / 512
         start_OK = False
         offsets = []
         sector_start = start / 512
         for i in self.header.block_map:
-            
             sector_offset = i.sector_offset
             if sector_offset != 2**32-1 and sector_offset >= sector_start:
                 if sector_offset == sector_start:
